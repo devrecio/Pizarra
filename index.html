@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pizarra Interactiva</title>
+  <style>
+    canvas {
+      border: 1px solid #ccc;
+      touch-action: none;
+    }
+    body {
+      text-align: center;
+    }
+    #tools {
+      margin: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Pizarra Interactiva</h2>
+  <div id="tools">
+    <button onclick="setColor('black')">Negro</button>
+    <button onclick="setColor('red')">Rojo</button>
+    <button onclick="setColor('blue')">Azul</button>
+    <button onclick="clearCanvas()">Limpiar</button>
+  </div>
+  <canvas id="canvas" width="800" height="500"></canvas>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+  <script src="pizarra.js"></script>
+</body>
+</html>
