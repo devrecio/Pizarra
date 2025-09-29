@@ -1,33 +1,241 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <title>Pizarra Interactiva</title>
-  <style>
-    canvas {
-      border: 1px solid #ccc;
-      touch-action: none;
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pizarra Digital Interactiva</title>
+<style>
+    body { margin:0; font-family:sans-serif; background:#1e1e1e; color:#fff; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:5px; padding:10px; background:#111; }
+    .tool-btn, button { padding:8px 12px; border:none; border-radius:5px; cursor:pointer; background:#333; color:#fff; transition:0.2s; }
+    .tool-btn:hover, button:hover { background:#555; }
+    .tool-btn.active { background:#2563eb; }
+
+    /* Contenedor con scroll */
+    .canvas-container {
+        width: calc(100% - 20px);
+        height: calc(100vh - 80px);
+        margin: 0 auto;
+        border:2px solid #333;
+        overflow: auto; /* Scroll si excede */
+        background:#000;
+        position: relative;
     }
-    body {
-      text-align: center;
+
+    #canvas {
+        display:block;
+        background:#000;
     }
-    #tools {
-      margin: 10px;
-    }
-  </style>
+
+    input[type=color], input[type=range] { cursor:pointer; }
+</style>
 </head>
 <body>
-  <h2>Pizarra Interactiva</h2>
-  <div id="tools">
-    <button onclick="setColor('black')">Negro</button>
-    <button onclick="setColor('red')">Rojo</button>
-    <button onclick="setColor('blue')">Azul</button>
-    <button onclick="clearCanvas()">Limpiar</button>
-  </div>
-  <canvas id="canvas" width="2000" height="500"></canvas>
 
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-  <script src="pizarra.js"></script>
+<div class="toolbar">
+    <button class="tool-btn active" data-tool="brush" onclick="setTool('brush')">Pincel</button>
+    <button class="tool-btn" data-tool="eraser" onclick="setTool('eraser')">Borrador</button>
+    <button class="tool-btn" data-tool="line" onclick="setTool('line')">Línea</button>
+    <button class="tool-btn" data-tool="rect" onclick="setTool('rect')">Rectángulo</button>
+    <button class="tool-btn" data-tool="circle" onclick="setTool('circle')">Círculo</button>
+    <button class="tool-btn" data-tool="text" onclick="setTool('text')">Texto</button>
+    <button onclick="undo()">⮪ Undo</button>
+    <button onclick="redo()">⮫ Redo</button>
+    <button onclick="saveCanvas()">💾 Guardar</button>
+    <input type="color" value="#2563eb" onchange="setBrushColor(this.value)">
+    <input type="range" min="1" max="50" value="5" onchange="setBrushSize(this.value)">
+    
+    <button onclick="toggleFullscreen()">⛶ Fullscreen</button>
+</div>
+
+<div class="canvas-container">
+    <canvas id="canvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+// Variables globales
+let tool = "brush";
+let drawing = false;
+let brushSize = 5;
+let brushColor = "#2563eb";
+let textInput = "";
+let startX = 0, startY = 0;
+let history = [];
+let redoStack = [];
+
+// Inicializa canvas
+canvas.width = window.innerWidth - 20;
+canvas.height = window.innerHeight - 80;
+
+// Guardar historial
+function saveHistory() {
+    if (history.length >= 50) history.shift();
+    history.push(canvas.toDataURL());
+    redoStack = [];
+}
+
+// Undo / Redo
+function undo() {
+    if (history.length === 0) return;
+    redoStack.push(canvas.toDataURL());
+    const last = history.pop();
+    const img = new Image();
+    img.src = last;
+    img.onload = () => { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0); };
+}
+function redo() {
+    if (redoStack.length === 0) return;
+    history.push(canvas.toDataURL());
+    const last = redoStack.pop();
+    const img = new Image();
+    img.src = last;
+    img.onload = () => { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0); };
+}
+
+// Herramientas
+function setTool(selectedTool) {
+    tool = selectedTool;
+    document.querySelectorAll(".tool-btn").forEach(btn => btn.classList.remove("active"));
+    const activeBtn = document.querySelector(`.tool-btn[data-tool="${selectedTool}"]`);
+    if (activeBtn) activeBtn.classList.add("active");
+}
+
+// Expande el canvas si se dibuja fuera de los límites
+function expandCanvasIfNeeded(x, y) {
+    let expanded = false;
+    if (x > canvas.width - 100) { canvas.width += 100; expanded = true; }
+    if (y > canvas.height - 100) { canvas.height += 100; expanded = true; }
+    return expanded;
+}
+
+// Mouse Events
+canvas.addEventListener("mousedown", e => {
+    drawing = true;
+    const rect = canvas.getBoundingClientRect();
+    startX = e.clientX - rect.left;
+    startY = e.clientY - rect.top;
+    if (tool === "brush" || tool === "eraser") saveHistory();
+    if (tool === "text") {
+        textInput = prompt("Ingrese texto:");
+        if (textInput) {
+            saveHistory();
+            ctx.fillStyle = brushColor;
+            ctx.font = `${brushSize*4}px sans-serif`;
+            ctx.fillText(textInput, startX, startY);
+            // expandir canvas si es necesario
+            if (expandCanvasIfNeeded(startX, startY + brushSize*4)) redraw();
+        }
+        drawing = false;
+    }
+});
+canvas.addEventListener("mousemove", e => {
+    if (!drawing) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (tool === "brush") {
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        startX = x;
+        startY = y;
+        if (expandCanvasIfNeeded(x, y)) redraw();
+    }
+    if (tool === "eraser") {
+        ctx.clearRect(x - brushSize/2, y - brushSize/2, brushSize, brushSize);
+        if (expandCanvasIfNeeded(x, y)) redraw();
+    }
+});
+canvas.addEventListener("mouseup", e => {
+    if (!drawing) return;
+    drawing = false;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (tool === "line") {
+        saveHistory();
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        expandCanvasIfNeeded(x, y) && redraw();
+    }
+    if (tool === "rect") {
+        saveHistory();
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        ctx.strokeRect(startX, startY, x - startX, y - startY);
+        expandCanvasIfNeeded(x, y) && redraw();
+    }
+    if (tool === "circle") {
+        saveHistory();
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
+        ctx.beginPath();
+        ctx.arc(startX, startY, radius, 0, Math.PI*2);
+        ctx.stroke();
+        expandCanvasIfNeeded(x + radius, y + radius) && redraw();
+    }
+});
+
+// Redraw
+function redraw() {
+    if (history.length === 0) return;
+    const img = new Image();
+    img.src = history[history.length-1];
+    img.onload = () => { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0); };
+}
+
+// Colores y tamaños
+function setBrushColor(color) { brushColor = color; }
+function setBrushSize(size) { brushSize = size; }
+
+// Guardar imagen
+function saveCanvas() {
+    const link = document.createElement("a");
+    link.download = "pizarra.png";
+    link.href = canvas.toDataURL();
+    link.click();
+}
+
+// Insertar símbolo / forma
+function insertSymbol(symbol) {
+    saveHistory();
+    ctx.fillStyle = brushColor;
+    ctx.font = `${brushSize*4}px sans-serif`;
+    ctx.fillText(symbol, canvas.width/2, canvas.height/2);
+}
+function insertShape(shape) {
+    saveHistory();
+    ctx.strokeStyle = brushColor;
+    ctx.lineWidth = brushSize;
+    const cx = canvas.width/2;
+    const cy = canvas.height/2;
+    switch(shape){
+        case "rect": ctx.strokeRect(cx-50, cy-50, 100,100); break;
+        case "circle": ctx.beginPath(); ctx.arc(cx, cy, 50,0,Math.PI*2); ctx.stroke(); break;
+        case "triangle": ctx.beginPath(); ctx.moveTo(cx, cy-50); ctx.lineTo(cx-50, cy+50); ctx.lineTo(cx+50, cy+50); ctx.closePath(); ctx.stroke(); break;
+    }
+}
+
+// Fullscreen
+function toggleFullscreen() {
+    if (!document.fullscreenElement) canvas.parentElement.requestFullscreen();
+    else document.exitFullscreen();
+}
+</script>
+
 </body>
 </html>
+
 
