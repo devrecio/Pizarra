@@ -1,34 +1,310 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <title>Pizarra Interactiva</title>
-  <style>
-    canvas {
-      border: 1px solid #ccc;
-      touch-action: none;
-    }
-    body {
-      text-align: center;
-    }
-    #tools {
-      margin: 10px;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pizarra Digital Interactiva</title>
+<style>
+  body { margin:0; font-family:sans-serif; background:#1e1e1e; color:#fff; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:5px; padding:10px; background:#111; }
+  .tool-btn, button { padding:8px 12px; border:none; border-radius:5px; cursor:pointer; background:#333; color:#fff; transition:0.2s; }
+  .tool-btn:hover, button:hover { background:#555; }
+  .tool-btn.active { background:#2563eb; }
+  .canvas-container {
+    width: calc(100% - 20px);
+    height: calc(100vh - 80px);
+    margin: 0 auto;
+    border:2px solid #333;
+    overflow: auto;
+    background:#000;
+    position: relative;
+  }
+  #canvas {
+    display:block;
+    background:#000;
+  }
+  input[type=color], input[type=range] { cursor:pointer; }
+</style>
 </head>
 <body>
-  <h2>Pizarra Interactiva</h2>
-  <div id="tools">
-    <button onclick="setColor('black')">Negro</button>
-    <button onclick="setColor('red')">Rojo</button>
-    <button onclick="setColor('blue')">Azul</button>
-    <button onclick="clearCanvas()">Limpiar</button>
-  </div>
-  <canvas id="canvas" width="2000" height="500"></canvas>
 
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-  <script src="pizarra.js"></script>
+<div class="toolbar">
+  <button class="tool-btn active" data-tool="brush" onclick="setTool('brush')">Pincel</button>
+  <button class="tool-btn" data-tool="eraser" onclick="setTool('eraser')">Borrador</button>
+  <button class="tool-btn" data-tool="line" onclick="setTool('line')">Línea</button>
+  <button class="tool-btn" data-tool="rect" onclick="setTool('rect')">Rectángulo</button>
+  <button class="tool-btn" data-tool="circle" onclick="setTool('circle')">Círculo</button>
+  <button class="tool-btn" data-tool="text" onclick="setTool('text')">Texto</button>
+  <button onclick="undo()">⮪ Undo</button>
+  <button onclick="redo()">⮫ Redo</button>
+  <button onclick="saveCanvas()">💾 Guardar</button>
+  <input type="color" value="#2563eb" onchange="setBrushColor(this.value)" />
+  <input type="range" min="1" max="50" value="5" onchange="setBrushSize(this.value)" />
+  <button onclick="toggleFullscreen()">⛶ Fullscreen</button>
+</div>
+
+<div class="canvas-container">
+  <canvas id="canvas"></canvas>
+</div>
+
+<script>
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+
+  // Variables globales
+  let tool = "brush";
+  let drawing = false;
+  let brushSize = 5;
+  let brushColor = "#2563eb";
+  let textInput = "";
+  let startX = 0, startY = 0;
+  let history = [];
+  let redoStack = [];
+
+  // Inicializar canvas
+  canvas.width = window.innerWidth - 20;
+  canvas.height = window.innerHeight - 80;
+
+  // Guardar historial para undo/redo
+  function saveHistory() {
+    if (history.length >= 50) history.shift();
+    history.push(canvas.toDataURL());
+    redoStack = [];
+  }
+
+  // Undo
+  function undo() {
+    if (history.length === 0) return;
+    redoStack.push(canvas.toDataURL());
+    const last = history.pop();
+    const img = new Image();
+    img.src = last;
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+  }
+
+  // Redo
+  function redo() {
+    if (redoStack.length === 0) return;
+    history.push(canvas.toDataURL());
+    const last = redoStack.pop();
+    const img = new Image();
+    img.src = last;
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+  }
+
+  // Cambiar herramienta
+  function setTool(selectedTool) {
+    tool = selectedTool;
+    document.querySelectorAll(".tool-btn").forEach(btn => btn.classList.remove("active"));
+    const activeBtn = document.querySelector(`.tool-btn[data-tool="${selectedTool}"]`);
+    if (activeBtn) activeBtn.classList.add("active");
+  }
+
+  // Expandir canvas si es necesario
+  function expandCanvasIfNeeded(x, y) {
+    let expanded = false;
+    if (x > canvas.width - 100) {
+      const oldWidth = canvas.width;
+      canvas.width += 100;
+      expanded = true;
+      // Redibujar todo tras cambio de tamaño
+      redraw(oldWidth, canvas.height);
+    }
+    if (y > canvas.height - 100) {
+      const oldHeight = canvas.height;
+      canvas.height += 100;
+      expanded = true;
+      redraw(canvas.width, oldHeight);
+    }
+    return expanded;
+  }
+
+  // Redibujar desde la última imagen guardada en history
+  function redraw(oldWidth = canvas.width, oldHeight = canvas.height) {
+    if (history.length === 0) return;
+    const img = new Image();
+    img.src = history[history.length - 1];
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, oldWidth, oldHeight);
+    };
+  }
+
+  // Obtener coordenadas relativas de mouse o touch
+  function getXY(e) {
+    const rect = canvas.getBoundingClientRect();
+    let x, y;
+    if (e.touches && e.touches.length > 0) {
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
+    return { x, y };
+  }
+
+  // Eventos mouse
+  canvas.addEventListener("mousedown", e => {
+    drawing = true;
+    const pos = getXY(e);
+    startX = pos.x;
+    startY = pos.y;
+    if (tool === "brush" || tool === "eraser") saveHistory();
+    if (tool === "text") {
+      textInput = prompt("Ingrese texto:");
+      if (textInput) {
+        saveHistory();
+        ctx.fillStyle = brushColor;
+        ctx.font = `${brushSize * 4}px sans-serif`;
+        ctx.fillText(textInput, startX, startY);
+        if (expandCanvasIfNeeded(startX, startY + brushSize * 4)) redraw();
+      }
+      drawing = false;
+    }
+  });
+
+  canvas.addEventListener("mousemove", e => {
+    if (!drawing) return;
+    const pos = getXY(e);
+    const x = pos.x;
+    const y = pos.y;
+    if (tool === "brush") {
+      ctx.strokeStyle = brushColor;
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      startX = x;
+      startY = y;
+      if (expandCanvasIfNeeded(x, y)) redraw();
+    }
+    if (tool === "eraser") {
+      ctx.clearRect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
+      if (expandCanvasIfNeeded(x, y)) redraw();
+    }
+  });
+
+  canvas.addEventListener("mouseup", e => {
+    if (!drawing) return;
+    drawing = false;
+    const pos = getXY(e);
+    const x = pos.x;
+    const y = pos.y;
+    if (tool === "line") {
+      saveHistory();
+      ctx.strokeStyle = brushColor;
+      ctx.lineWidth = brushSize;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      expandCanvasIfNeeded(x, y) && redraw();
+    }
+    if (tool === "rect") {
+      saveHistory();
+      ctx.strokeStyle = brushColor;
+      ctx.lineWidth = brushSize;
+      ctx.strokeRect(startX, startY, x - startX, y - startY);
+      expandCanvasIfNeeded(x, y) && redraw();
+    }
+    if (tool === "circle") {
+      saveHistory();
+      ctx.strokeStyle = brushColor;
+      ctx.lineWidth = brushSize;
+      const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
+      ctx.beginPath();
+      ctx.arc(startX, startY, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      expandCanvasIfNeeded(x + radius, y + radius) && redraw();
+    }
+  });
+
+  // Eventos touch
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault(); // Evitar scroll mientras dibujas o escribes
+    drawing = true;
+    const pos = getXY(e);
+    startX = pos.x;
+    startY = pos.y;
+    if (tool === "brush" || tool === "eraser") saveHistory();
+    if (tool === "text") {
+      textInput = prompt("Ingrese texto:");
+      if (textInput) {
+        saveHistory();
+        ctx.fillStyle = brushColor;
+        ctx.font = `${brushSize * 4}px sans-serif`;
+        ctx.fillText(textInput, startX, startY);
+        if (expandCanvasIfNeeded(startX, startY + brushSize * 4)) redraw();
+      }
+      drawing = false;
+    }
+  });
+
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    if (!drawing) return;
+    const pos = getXY(e);
+    const x = pos.x;
+    const y = pos.y;
+
+    if (tool === "brush") {
+      ctx.strokeStyle = brushColor;
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      startX = x;
+      startY = y;
+      if (expandCanvasIfNeeded(x, y)) redraw();
+    }
+
+    if (tool === "eraser") {
+      ctx.clearRect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
+      if (expandCanvasIfNeeded(x, y)) redraw();
+    }
+  });
+
+  canvas.addEventListener("touchend", e => {
+    e.preventDefault();
+    drawing = false;
+  });
+
+  // Cambiar color y tamaño
+  function setBrushColor(color) { brushColor = color; }
+  function setBrushSize(size) { brushSize = size; }
+
+  // Guardar canvas como imagen
+  function saveCanvas() {
+    const link = document.createElement("a");
+    link.download = "pizarra.png";
+    link.href = canvas.toDataURL();
+    link.click();
+  }
+
+  // Fullscreen
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      canvas.parentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }
+</script>
+
 </body>
 </html>
+
+
 
 
