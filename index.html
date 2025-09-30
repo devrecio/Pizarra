@@ -44,21 +44,24 @@
   <input type="color" value="#2563eb" onchange="setBrushColor(this.value)" />
   <input type="range" min="1" max="50" value="5" onchange="setBrushSize(this.value)" />
   <button onclick="toggleFullscreen()">⛶ Pantalla completa</button>
-  <button onclick="expandCanvasManual()">➕ Expandir Lienzo</button>
 </div>
 
-<div class="canvas-container">
+<div class="canvas-container" id="canvas-container">
   <canvas id="canvas"></canvas>
 </div>
 
 <script>
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d");
+  const container = document.getElementById("canvas-container");
 
   let tool = "brush", drawing = false;
   let brushSize = 5, brushColor = "#2563eb", textInput = "";
   let startX = 0, startY = 0;
   let history = [], redoStack = [];
+
+  // Espacio de expansión (1 espacio = 100 px)
+  const EXPAND_STEP = 100;
 
   canvas.width = window.innerWidth - 20;
   canvas.height = window.innerHeight - 80;
@@ -98,38 +101,33 @@
     if (activeBtn) activeBtn.classList.add("active");
   }
 
+  // 🔹 FUNCIÓN AUTO-EXPANDIBLE (100px + scroll automático)
   function expandCanvasIfNeeded(x, y) {
-    let expanded = false;
-    const lineHeight = brushSize * 4 * 2;
+    let oldWidth = canvas.width;
+    let oldHeight = canvas.height;
 
-    if (x > canvas.width - 100) {
-      const oldWidth = canvas.width;
-      canvas.width += 200;
-      expanded = true;
-      redraw(oldWidth, canvas.height);
+    let expandRight = false;
+    let expandDown = false;
+
+    if (x >= canvas.width - 50) {
+      canvas.width += EXPAND_STEP;
+      expandRight = true;
+    }
+    if (y >= canvas.height - 50) {
+      canvas.height += EXPAND_STEP;
+      expandDown = true;
     }
 
-    if (y > canvas.height - 100) {
-      const oldHeight = canvas.height;
-      canvas.height += lineHeight;
-      expanded = true;
-      redraw(canvas.width, oldHeight);
+    if (expandRight || expandDown) {
+      redraw(oldWidth, oldHeight);
+
+      // 🔹 Mover scroll automáticamente 100px
+      if (expandRight) container.scrollLeft += EXPAND_STEP;
+      if (expandDown) container.scrollTop += EXPAND_STEP;
     }
-
-    return expanded;
   }
 
-  // 🔸 NUEVA FUNCIÓN MANUAL PARA EXPANDIR CANVAS
-  function expandCanvasManual() {
-    saveHistory();
-    const oldWidth = canvas.width;
-    const oldHeight = canvas.height;
-    canvas.width += 200; // horizontal
-    canvas.height += 100; // vertical
-    redraw(oldWidth, oldHeight);
-  }
-
-  function redraw(oldWidth = canvas.width, oldHeight = canvas.height) {
+  function redraw(oldWidth, oldHeight) {
     if (!history.length) return;
     const img = new Image();
     img.src = history[history.length - 1];
@@ -152,6 +150,7 @@
     return { x, y };
   }
 
+  // Eventos mouse
   canvas.addEventListener("mousedown", e => {
     drawing = true;
     const pos = getXY(e);
@@ -165,7 +164,7 @@
         ctx.fillStyle = brushColor;
         ctx.font = `${brushSize * 4}px sans-serif`;
         ctx.fillText(textInput, startX, startY);
-        expandCanvasIfNeeded(startX, startY + brushSize * 8) && redraw();
+        expandCanvasIfNeeded(startX, startY);
       }
       drawing = false;
     }
@@ -185,16 +184,18 @@
       ctx.lineTo(x, y);
       ctx.stroke();
       startX = x; startY = y;
-      expandCanvasIfNeeded(x, y) && redraw();
+      expandCanvasIfNeeded(x, y);
     }
 
     if (tool === "eraser") {
       ctx.clearRect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
-      expandCanvasIfNeeded(x, y) && redraw();
+      expandCanvasIfNeeded(x, y);
     }
   });
 
   canvas.addEventListener("mouseup", () => drawing = false);
+
+  // Eventos táctiles
   canvas.addEventListener("touchstart", e => {
     e.preventDefault();
     drawing = true;
@@ -209,7 +210,7 @@
         ctx.fillStyle = brushColor;
         ctx.font = `${brushSize * 4}px sans-serif`;
         ctx.fillText(textInput, startX, startY);
-        expandCanvasIfNeeded(startX, startY + brushSize * 8) && redraw();
+        expandCanvasIfNeeded(startX, startY);
       }
       drawing = false;
     }
@@ -226,31 +227,23 @@
       ctx.lineWidth = brushSize;
       ctx.lineCap = "round";
       ctx.beginPath();
-
-      ctx.beginPath();
       ctx.moveTo(startX, startY);
       ctx.lineTo(x, y);
       ctx.stroke();
-      startX = x;
-      startY = y;
-      expandCanvasIfNeeded(x, y) && redraw();
+      startX = x; startY = y;
+      expandCanvasIfNeeded(x, y);
     }
 
     if (tool === "eraser") {
       ctx.clearRect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
-      expandCanvasIfNeeded(x, y) && redraw();
+      expandCanvasIfNeeded(x, y);
     }
   });
 
   canvas.addEventListener("touchend", () => drawing = false);
 
-  function setBrushColor(color) {
-    brushColor = color;
-  }
-
-  function setBrushSize(size) {
-    brushSize = parseInt(size);
-  }
+  function setBrushColor(color) { brushColor = color; }
+  function setBrushSize(size) { brushSize = parseInt(size); }
 
   function saveCanvas() {
     const link = document.createElement("a");
@@ -263,18 +256,17 @@
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen();
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
+      if (document.exitFullscreen) document.exitFullscreen();
     }
   }
 
-  // Inicial: guardar primer estado
   saveHistory();
 </script>
 
 </body>
 </html>
+
+
 
 
 
