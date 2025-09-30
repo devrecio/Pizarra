@@ -38,6 +38,46 @@ document.getElementById("saveBtn").onclick = saveCanvas;
 document.getElementById("fullscreenBtn").onclick = toggleFullscreen;
 
 // CANVAS EVENTS
+// CANVAS EVENTS
+canvas.addEventListener("mousemove", (e) => {
+  if(tool === "hand" && panning) {
+    e.preventDefault();
+    
+    const dx = e.clientX - panStartX;
+    const dy = e.clientY - panStartY;
+    
+    container.scrollLeft -= dx;
+    container.scrollTop -= dy;
+
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+
+    maybeExpandOnPan(); // << NUEVO
+    return;
+  }
+  draw(e);
+});
+
+canvas.addEventListener("touchmove", (e) => {
+  if(tool === "hand" && panning) {
+    e.preventDefault();
+    const touch = e.touches[0];
+
+    const dx = touch.clientX - panStartX;
+    const dy = touch.clientY - panStartY;
+
+    container.scrollLeft -= dx;
+    container.scrollTop -= dy;
+
+    panStartX = touch.clientX;
+    panStartY = touch.clientY;
+
+    maybeExpandOnPan(); // << NUEVO
+    return;
+  }
+  draw(e);
+});
+
 canvas.addEventListener("mousedown", (e) => {
   if(tool === "hand") {
     e.preventDefault();
@@ -289,3 +329,16 @@ document.body.addEventListener("touchmove", function (e) {
 }, { passive: false });
 
 
+function maybeExpandOnPan() {
+  const margin = 50;
+
+  const nearRight = container.scrollLeft + container.clientWidth >= canvas.width - margin;
+  const nearBottom = container.scrollTop + container.clientHeight >= canvas.height - margin;
+
+  if (nearRight || nearBottom) {
+    const newWidth = nearRight ? canvas.width + EXPAND_STEP : canvas.width;
+    const newHeight = nearBottom ? canvas.height + EXPAND_STEP : canvas.height;
+
+    resizeCanvas(newWidth, newHeight);
+  }
+}
