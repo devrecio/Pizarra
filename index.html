@@ -4,273 +4,43 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pizarra Digital Interactiva</title>
-  <style>
-    body { margin:0; font-family:sans-serif; background:#1e1e1e; color:#fff; }
-    .toolbar {
-      display:flex; flex-wrap:wrap; gap:5px;
-      padding:10px; background:#111;
-    }
-    .tool-btn, button {
-      padding:8px 12px; border:none; border-radius:5px;
-      cursor:pointer; background:#333; color:#fff; transition:0.2s;
-    }
-    .tool-btn:hover, button:hover { background:#555; }
-    .tool-btn.active { background:#2563eb; }
-    .canvas-container {
-      width: calc(100% - 20px);
-      height: calc(100vh - 80px);
-      margin: 0 auto;
-      border:2px solid #333;
-      overflow: auto;
-      background:#000;
-      position: relative;
-    }
-    #canvas { display:block; background:#000; }
-    input[type=color], input[type=range] { cursor:pointer; }
-  </style>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-<div class="toolbar">
-  <button class="tool-btn active" data-tool="brush" onclick="setTool('brush')">Pincel</button>
-  <button class="tool-btn" data-tool="eraser" onclick="setTool('eraser')">Borrador</button>
-  <button class="tool-btn" data-tool="line" onclick="setTool('line')">Línea</button>
-  <button class="tool-btn" data-tool="rect" onclick="setTool('rect')">Rectángulo</button>
-  <button class="tool-btn" data-tool="circle" onclick="setTool('circle')">Círculo</button>
-  <button class="tool-btn" data-tool="text" onclick="setTool('text')">Texto</button>
-  <button onclick="undo()">⮪ Undo</button>
-  <button onclick="redo()">⮫ Redo</button>
-  <button onclick="saveCanvas()">💾 Guardar</button>
-  <input type="color" value="#2563eb" onchange="setBrushColor(this.value)" />
-  <input type="range" min="1" max="50" value="5" onchange="setBrushSize(this.value)" />
-  <button onclick="toggleFullscreen()">⛶ Pantalla completa</button>
-</div>
+  <header class="toolbar">
+    <button class="tool-btn active" data-tool="brush">Pincel</button>
+    <button class="tool-btn" data-tool="eraser">Borrador</button>
+    <div class="dropdown">
+    <button class="tool-btn">Formas ⌄</button>
+    <div class="dropdown-content">
+     <button class="tool-btn" data-tool="line">Línea</button>
+     <button class="tool-btn" data-tool="rect">Rectángulo</button>
+     <button class="tool-btn" data-tool="circle">Círculo</button>
+     </div>
+    </div>
 
-<div class="canvas-container" id="canvas-container">
-  <canvas id="canvas"></canvas>
-</div>
+    <button id="undoBtn">⮪ Undo</button>
+    <button id="redoBtn">⮫ Redo</button>
+    <button id="saveBtn">💾 Guardar</button>
+    <input type="color" id="colorPicker" value="#2563eb" />
+    <input type="range" id="sizePicker" min="1" max="50" value="5" />
+    <button id="fullscreenBtn">⛶ Pantalla completa</button>
+    <button class="tool-btn" data-tool="hand">✋ Mano</button>
 
-<script>
-  const canvas = document.getElementById("canvas");
-  const ctx = canvas.getContext("2d");
-  const container = document.getElementById("canvas-container");
+  </header>
 
-  let tool = "brush", drawing = false;
-  let brushSize = 5, brushColor = "#2563eb", textInput = "";
-  let startX = 0, startY = 0;
-  let history = [], redoStack = [];
+  <main class="canvas-container" id="canvas-container">
+    <canvas id="canvas"></canvas>
+  </main>
 
-  // Espacio de expansión (1 espacio = 100 px)
-  const EXPAND_STEP = 100;
+  <div id="textInputBox">
+    <input type="text" id="textValue" placeholder="Escribe tu texto..." />
+    <button onclick="insertText()">✔</button>
+  </div>
 
-  canvas.width = window.innerWidth - 20;
-  canvas.height = window.innerHeight - 80;
-
-  function saveHistory() {
-    if (history.length >= 50) history.shift();
-    history.push(canvas.toDataURL());
-    redoStack = [];
-  }
-
-  function undo() {
-    if (!history.length) return;
-    redoStack.push(canvas.toDataURL());
-    const img = new Image();
-    img.src = history.pop();
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-    };
-  }
-
-  function redo() {
-    if (!redoStack.length) return;
-    history.push(canvas.toDataURL());
-    const img = new Image();
-    img.src = redoStack.pop();
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-    };
-  }
-
-  function setTool(selectedTool) {
-    tool = selectedTool;
-    document.querySelectorAll(".tool-btn").forEach(btn => btn.classList.remove("active"));
-    const activeBtn = document.querySelector(`.tool-btn[data-tool="${selectedTool}"]`);
-    if (activeBtn) activeBtn.classList.add("active");
-  }
-
-  // 🔹 FUNCIÓN AUTO-EXPANDIBLE (100px + scroll automático)
-  function expandCanvasIfNeeded(x, y) {
-    let oldWidth = canvas.width;
-    let oldHeight = canvas.height;
-
-    let expandRight = false;
-    let expandDown = false;
-
-    if (x >= canvas.width - 50) {
-      canvas.width += EXPAND_STEP;
-      expandRight = true;
-    }
-    if (y >= canvas.height - 50) {
-      canvas.height += EXPAND_STEP;
-      expandDown = true;
-    }
-
-    if (expandRight || expandDown) {
-      redraw(oldWidth, oldHeight);
-
-      // 🔹 Mover scroll automáticamente 100px
-      if (expandRight) container.scrollLeft += EXPAND_STEP;
-      if (expandDown) container.scrollTop += EXPAND_STEP;
-    }
-  }
-
-  function redraw(oldWidth, oldHeight) {
-    if (!history.length) return;
-    const img = new Image();
-    img.src = history[history.length - 1];
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, oldWidth, oldHeight);
-    };
-  }
-
-  function getXY(e) {
-    const rect = canvas.getBoundingClientRect();
-    let x, y;
-    if (e.touches && e.touches.length > 0) {
-      x = e.touches[0].clientX - rect.left;
-      y = e.touches[0].clientY - rect.top;
-    } else {
-      x = e.clientX - rect.left;
-      y = e.clientY - rect.top;
-    }
-    return { x, y };
-  }
-
-  // Eventos mouse
-  canvas.addEventListener("mousedown", e => {
-    drawing = true;
-    const pos = getXY(e);
-    startX = pos.x;
-    startY = pos.y;
-    if (tool === "brush" || tool === "eraser") saveHistory();
-    if (tool === "text") {
-      textInput = prompt("Ingrese texto:");
-      if (textInput) {
-        saveHistory();
-        ctx.fillStyle = brushColor;
-        ctx.font = `${brushSize * 4}px sans-serif`;
-        ctx.fillText(textInput, startX, startY);
-        expandCanvasIfNeeded(startX, startY);
-      }
-      drawing = false;
-    }
-  });
-
-  canvas.addEventListener("mousemove", e => {
-    if (!drawing) return;
-    const pos = getXY(e);
-    const x = pos.x, y = pos.y;
-
-    if (tool === "brush") {
-      ctx.strokeStyle = brushColor;
-      ctx.lineWidth = brushSize;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      startX = x; startY = y;
-      expandCanvasIfNeeded(x, y);
-    }
-
-    if (tool === "eraser") {
-      ctx.clearRect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
-      expandCanvasIfNeeded(x, y);
-    }
-  });
-
-  canvas.addEventListener("mouseup", () => drawing = false);
-
-  // Eventos táctiles
-  canvas.addEventListener("touchstart", e => {
-    e.preventDefault();
-    drawing = true;
-    const pos = getXY(e);
-    startX = pos.x;
-    startY = pos.y;
-    if (tool === "brush" || tool === "eraser") saveHistory();
-    if (tool === "text") {
-      textInput = prompt("Ingrese texto:");
-      if (textInput) {
-        saveHistory();
-        ctx.fillStyle = brushColor;
-        ctx.font = `${brushSize * 4}px sans-serif`;
-        ctx.fillText(textInput, startX, startY);
-        expandCanvasIfNeeded(startX, startY);
-      }
-      drawing = false;
-    }
-  });
-
-  canvas.addEventListener("touchmove", e => {
-    e.preventDefault();
-    if (!drawing) return;
-    const pos = getXY(e);
-    const x = pos.x, y = pos.y;
-
-    if (tool === "brush") {
-      ctx.strokeStyle = brushColor;
-      ctx.lineWidth = brushSize;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      startX = x; startY = y;
-      expandCanvasIfNeeded(x, y);
-    }
-
-    if (tool === "eraser") {
-      ctx.clearRect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
-      expandCanvasIfNeeded(x, y);
-    }
-  });
-
-  canvas.addEventListener("touchend", () => drawing = false);
-
-  function setBrushColor(color) { brushColor = color; }
-  function setBrushSize(size) { brushSize = parseInt(size); }
-
-  function saveCanvas() {
-    const link = document.createElement("a");
-    link.download = "pizarra.png";
-    link.href = canvas.toDataURL();
-    link.click();
-  }
-
-  function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen();
-    } else {
-      if (document.exitFullscreen) document.exitFullscreen();
-    }
-  }
-
-  saveHistory();
-</script>
-
+  <script src="main.js"></script>
 </body>
 </html>
-
-
-
-
-
-
-
 
 
